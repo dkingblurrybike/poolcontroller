@@ -35,8 +35,8 @@ meas_list = []
 disp = LCD_1inch69.LCD_1inch69()
 disp.Init()
 disp.clear()
-FontLarge = ImageFont.truetype("/home/dking/Heater/font/Font02.ttf",80)
-FontSmall = ImageFont.truetype("/home/dking/Heater/font/Font02.ttf",40)
+FontLarge = ImageFont.truetype("/home/dking/poolcontroller/font/Font02.ttf",80)
+FontSmall = ImageFont.truetype("/home/dking/poolcontroller/font/Font02.ttf",40)
 
 image1 = Image.new("RGB", (disp.width,disp.height), "BLACK")
 draw = ImageDraw.Draw(image1)
