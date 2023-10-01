@@ -46,13 +46,6 @@ disp.clear()
 FontLarge = ImageFont.truetype("/home/dking/poolcontroller/font/Font02.ttf",80)
 FontSmall = ImageFont.truetype("/home/dking/poolcontroller/font/Font02.ttf",40)
 
-image1 = Image.new("RGB", (disp.width,disp.height), "BLACK")
-draw = ImageDraw.Draw(image1)
-draw.text((75,50), str(current_temp), fill = "WHITE", font=FontLarge)
-draw.text((90,160), str(temp_setpoint), fill = "WHITE", font=FontSmall)
-draw.text((20,220), str(status_message), fill = "WHITE", font=FontSmall)
-disp.ShowImage(image1)
-
 def check_sensors():
 	check_leds()
 	check_temp()
@@ -95,7 +88,7 @@ def heater_status(status):
 
 def set_heater(status):
 	global flag_state_change
-	global flag_heater_status
+	global flag_request_heat
 	if(status!=flag_request_heat):
 		if (status=="on"):
 			flag_request_heat = "on"
@@ -139,6 +132,8 @@ def check_leds():
 
 def check_temp():
 	global current_temp
+	global flag_state_change
+
 	temp_list = []
 	while (len(temp_list) < NUM_TEMP_SAMPLES):
 		val = round(temp_sensor.value * 3.3,3)
@@ -146,13 +141,16 @@ def check_temp():
 		sleep(.001)
 	avg = round(sum(temp_list)/len(temp_list),3)
 	meas_list.append(avg)
-	print("t" + str(len(meas_list)) + ": " + str(avg))
+	#print("t" + str(len(meas_list)) + ": " + str(avg))
 	if (len(meas_list)==NUM_TEMP_PASSES):
 		avg = round(sum(meas_list)/len(meas_list),3)
 		temp = voltage_to_temp(round(avg,2))
 		meas_list.clear()
-		print("Avg temp: " + str(temp))
-		current_temp = str(temp)
+		#print("Avg temp: " + str(temp))
+		if(str(temp)!=current_temp):
+			current_temp = str(temp)
+			flag_state_change = True
+
 		if (temp < int(temp_setpoint)):
 			set_heater("on")
 		else:
@@ -187,7 +185,6 @@ def decrease_pressed_callback(channel):
 		flag_state_change = True
 
 if __name__=='__main__':
-	signal.signal(signal.SIGKILL,signal_handler)
 	GPIO.setmode(GPIO.BCM)
 	GPIO.setup(INCREASE_BUTTON_GPIO,GPIO.IN,pull_up_down=GPIO.PUD_UP)
 	GPIO.setup(DECREASE_BUTTON_GPIO,GPIO.IN,pull_up_down=GPIO.PUD_UP)
@@ -197,22 +194,18 @@ GPIO.add_event_detect(DECREASE_BUTTON_GPIO,GPIO.RISING, callback=decrease_presse
 
 def update_display():
 	global last_update_time
+	global flag_state_change
+	time_since_last_update = 0
 
 	if flag_state_change:
-		
-		if (last_update_time == 0):
-			last_update_time = time()
-			print("Initial display update")
+		if (int(last_update_time) == 0):
+			last_update_time = time.time()
 		else:
-			current_time = time()
-			time_since_last_update = current_time - last_update_time
-			last_update_time = current_time
-			print("Update display request. Last update was " + str(time_since_last_update) + " ms ago.")
+			current_time = (time.time())*1000
+			time_since_last_update = int(current_time) - int(last_update_time)
 		
-		if (time_since_last_update < 20):
-			print("Waiting longer before update")
-		else:
-			print("Updating")
+		if (time_since_last_update > 200):
+			print("Updating. Time since last update = " + str(time_since_last_update))
 			disp = LCD_1inch69.LCD_1inch69()
 			background = "BLACK"
 			textfill = "WHITE"
@@ -235,9 +228,8 @@ def update_display():
 			draw.text((90,160), str(temp_setpoint), fill = setpointfill, font=FontSmall)
 			draw.text((20,220), str(status_message), fill = textfill, font=FontSmall)
 			disp.ShowImage(image1)
+			last_update_time = (time.time())*1000
 			flag_state_change = False
-	else:
-		print("Update unnecessary - no state change")
 		
 	return()
 	
