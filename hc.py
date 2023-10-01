@@ -13,15 +13,23 @@ from time import sleep
 
 INCREASE_BUTTON_GPIO = 17
 DECREASE_BUTTON_GPIO = 22
+
+MAX_TEMP = 104
+MIN_TEMP = 40
+
+NUM_TEMP_SAMPLES = 50
+NUM_TEMP_PASSES = 4
+
 temp_setpoint = 65
 flag_heater_status = "off"
 flag_request_heat = "off"
 flag_heater_error = "off"
 current_temp = "-"
 status_message = "Loading..."
+flag_state_change = True
 
-NUM_TEMP_SAMPLES = 50
-NUM_TEMP_PASSES = 4
+last_update_time = 0
+last_temp_change_time = 0
 
 #Display pin configuration
 RST = 27
@@ -51,35 +59,51 @@ def check_sensors():
 
 def status(msg):
 	global status_message
-	status_message = msg
-
+	global flag_state_change
+	if(msg != status_message):
+		status_message = msg
+		flag_state_change = True
+	
 def error(msg):
 	global flag_heater_error
 	global status_message
-	flag_heater_error = "on"
-	status_message = msg
+	global flag_state_change
+	if (flag_heater_error != "on"):
+		flag_heater_error = "on"
+		flag_state_change = True
+	if (status_message != msg):	
+		status_message = msg
+		flag_state_change = True
 
 def clear_error():
 	global status_message
 	global flag_heater_error
-	flag_heater_error = "off"
-	status_message = ""
+	global flag_state_change
+	if (flag_heater_error != "off"):
+		flag_heater_error = "off"
+		flag_state_change = True
+	if (status_message != ""):	
+		status_message = ""
+		flag_state_change = True
 
 def heater_status(status):
+	global flag_state_change
 	global flag_heater_status
-	if (status=="on"):
-		flag_heater_status = "on"
-	else:
-		flag_heater_status = "off"
+	if(status!=flag_heater_status):
+		flag_heater_status = status
+		flag_state_change = True
 
 def set_heater(status):
-	global flag_request_heat
-	if (status=="on"):
-		flag_request_heat = "on"
-		heater.on()
-	else:
-		flag_request_heat = "off"
-		heater.off()
+	global flag_state_change
+	global flag_heater_status
+	if(status!=flag_request_heat):
+		if (status=="on"):
+			flag_request_heat = "on"
+			heater.on()
+		else:
+			flag_request_heat = "off"
+			heater.off()
+		flag_state_change = True
 
 def check_leds():
 	meas_list = []
@@ -144,61 +168,80 @@ error_sensor = MCP3008(channel=4,differential=True,max_voltage=3.3,device=1)
 heater = LED("GPIO16")
 
 def signal_handler(sig, frame):
+	disp.clear()
 	GPIO.cleanup()
 	sys.exit(0)
 
 def increase_pressed_callback(channel):
-	print("Increase Pressed via Interrupt")
 	global temp_setpoint 
-	temp_setpoint= int(temp_setpoint) + 1
-	#print("New setpoint = " + str(temp_setpoint))
+	global flag_state_change
+	if (temp_setpoint < MAX_TEMP):
+		temp_setpoint = int(temp_setpoint) + 1
+		flag_state_change = True
 
 def decrease_pressed_callback(channel):
-        print("Decrease Pressed via Interrupt")
-        global temp_setpoint 
-        temp_setpoint= int(temp_setpoint) - 1
-        #print("New setpoint = " + str(temp_setpoint))
+	global temp_setpoint 
+	global flag_state_change
+	if (temp_setpoint > MIN_TEMP):
+		temp_setpoint = int(temp_setpoint) - 1
+		flag_state_change = True
 
 if __name__=='__main__':
+	signal.signal(signal.SIGKILL,signal_handler)
 	GPIO.setmode(GPIO.BCM)
 	GPIO.setup(INCREASE_BUTTON_GPIO,GPIO.IN,pull_up_down=GPIO.PUD_UP)
 	GPIO.setup(DECREASE_BUTTON_GPIO,GPIO.IN,pull_up_down=GPIO.PUD_UP)
 
-
-GPIO.add_event_detect(INCREASE_BUTTON_GPIO,GPIO.FALLING, callback=increase_pressed_callback,bouncetime=500)
-GPIO.add_event_detect(DECREASE_BUTTON_GPIO,GPIO.FALLING, callback=decrease_pressed_callback,bouncetime=500)
+GPIO.add_event_detect(INCREASE_BUTTON_GPIO,GPIO.RISING, callback=increase_pressed_callback,bouncetime=200)
+GPIO.add_event_detect(DECREASE_BUTTON_GPIO,GPIO.RISING, callback=decrease_pressed_callback,bouncetime=200)
 
 def update_display():
-	disp = LCD_1inch69.LCD_1inch69()
-	background = "BLACK"
-	textfill = "WHITE"
-	setpointfill = "WHITE"
+	global last_update_time
 
-	if(flag_request_heat == "on"):
-		setpointfill = "RED"
-	
-	if (flag_heater_error == "on"):
-		background = "YELLOW"
-		textfill = "BLACK"
-		setpointfill = "BLACK"
-	elif(flag_heater_status == "on"):
-		background = "RED"
-		setpointfill = "WHITE"
+	if flag_state_change:
+		
+		if (last_update_time == 0):
+			last_update_time = time()
+			print("Initial display update")
+		else:
+			current_time = time()
+			time_since_last_update = current_time - last_update_time
+			last_update_time = current_time
+			print("Update display request. Last update was " + str(time_since_last_update) + " ms ago.")
+		
+		if (time_since_last_update < 20):
+			print("Waiting longer before update")
+		else:
+			print("Updating")
+			disp = LCD_1inch69.LCD_1inch69()
+			background = "BLACK"
+			textfill = "WHITE"
+			setpointfill = "WHITE"
 
-	image1 = Image.new("RGB", (disp.width,disp.height), background)
-	draw = ImageDraw.Draw(image1)
-	draw.text((75,50), str(current_temp), fill = textfill, font=FontLarge)
-	draw.text((90,160), str(temp_setpoint), fill = setpointfill, font=FontSmall)
-	draw.text((20,220), str(status_message), fill = textfill, font=FontSmall)
-	disp.ShowImage(image1)
+			if(flag_request_heat == "on"):
+				setpointfill = "RED"
+			
+			if (flag_heater_error == "on"):
+				background = "YELLOW"
+				textfill = "BLACK"
+				setpointfill = "BLACK"
+			elif(flag_heater_status == "on"):
+				background = "RED"
+				setpointfill = "WHITE"
+
+			image1 = Image.new("RGB", (disp.width,disp.height), background)
+			draw = ImageDraw.Draw(image1)
+			draw.text((75,50), str(current_temp), fill = textfill, font=FontLarge)
+			draw.text((90,160), str(temp_setpoint), fill = setpointfill, font=FontSmall)
+			draw.text((20,220), str(status_message), fill = textfill, font=FontSmall)
+			disp.ShowImage(image1)
+			flag_state_change = False
+	else:
+		print("Update unnecessary - no state change")
+		
 	return()
 	
 while True:
 	update_display()
 	check_sensors()
 	sleep(.001)
-	
-
-
-#signal.signal(signal.SIGINT,signal_handler)
-#signal.pause
